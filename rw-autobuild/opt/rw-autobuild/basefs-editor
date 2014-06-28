@@ -358,6 +358,8 @@ function extract()
 	[[ -z $basv ]] && exitApp "FATAL:  please enter base version as second argument\n\ttype -l to list avliable versions" "1"
 	[[ ! -d $WORKDIR ]] && exitApp "FATAL: please enter work dir as third argument" "2"
 	testconnect
+	logging "$basv base filesystem to install "
+	logging "Work directory $WORKDIR "
 	getbase "$basv"
 	redist
 	logging "base filesystem Extracted at $WORKDIR/extracted"
@@ -402,8 +404,14 @@ case $1 in
 	testconnect "l"
 	;;
 "-v" | "--verbose")
-	VERBOSE="on"
-	main "$2" "$3"
+	if [[ "$2" = "-e" ]] || [[ "$2" = "--extract" ]]
+	then
+		VERBOSE="on"
+		extract "$3" "$4"
+	else
+		VERBOSE="on"
+		main "$2" "$3"
+	fi
 	;;
 "-e" | "--extract")
 	extract "$2" "$3"
