@@ -1,0 +1,27 @@
+
+#Enter base filesystem id to Download and work ... type "bs-edidor -l" to get avaliable versions and IDs
+basefsid:ka7;
+
+#Enter .iso file name (ASCII characters, dots, slashes and underscores are allowed)
+isoname:; 
+
+#Enter distribution's name (ASCII characters only, no spaces allowed)
+grubTitle:;
+
+#Set System Wide configuration directory
+etcDir:;
+
+#Set user specific configurations directory
+userConf:;
+
+#Set directory that contains extra files to be added to / after the installation
+rootExtra:;
+
+#Enter auther name
+auther:;
+
+#Enter Distro Description 
+disc:;
+
+#Enter Distro version 
+vers:;

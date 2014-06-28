@@ -1,0 +1,14 @@
+Package: rw-autobuild
+Version: 0.94.2
+Architecture: all
+Maintainer: Ahmad Hegazy <ahegazipro@gmail.com>
+Section: Utilities
+Depends: apt-utils, bc, bzip2, coreutils, curl, findutils, gawk, genisoimage, grep, mawk, mount, p7zip-full, realpath, sed, squashfs-tools, wget
+Priority: optional
+Homepage: https://www.sphinux.org/basefs/
+Description: Create a bootable standard GNU/Linux based distribution in easy steps
+ RedistWizard is an easy-to-use tool that helps create and redistribute Linux-based distributions
+ Select a StdBaseFS to download (StdBaseFS is an extended standard Linux base redistribution framework.)
+ Choose your included packages, add files to the root of the redistributed filesystem and more.
+ This Package provides a beta version of RedistWizard.
+ 

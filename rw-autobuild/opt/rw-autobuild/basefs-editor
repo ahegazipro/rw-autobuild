@@ -1,0 +1,414 @@
+#!/bin/bash
+
+function printabout()
+{
+	echo ""
+	echo "RedistWizard - Will help you redistribute StdBaseFS."
+	echo "StdBaseFS is an extended standard Linux base redistribution framework."
+	echo "Easy to use, standardized and gives you control over the redistribution process."
+	echo ""
+	echo "write configuration file before run this script at work directory named redist.conf ."
+	echo "You can find configuration file example at `dirname $(realpath $0)`/expamples/redist.conf.example" 
+	echo "work directory path should be the first argument"
+	echo "You can add configuration file path as a second argument."
+	echo "" 
+	echo "Synopsis:"
+	echo -e "\t`echo $0 | awk -F '/' '{print $NF}'` <options> ..."
+	echo ""
+	echo "Options:"
+	echo -e "\t-h,--help\t\tPrint usage information 'this message'."
+	echo -e "\t-l,--getbaselist \tGet list of avaliable basefs."
+	echo -e "\t-e,--extract <basefs> <Workdir> Extract choosed basefs in WORKDIR."
+#	echo -e "\t\t\t\tneed basefile system version as second argument\n\t\t\t\twork directory as third argument"
+	echo ""
+	echo "License:"
+	echo -e "\tCopyright © 2014 SphinUX Community, Alexandria, Egypt."
+	echo ""
+	echo -e "\tLicense GPLv3+: GNU GPL version 3 or later <http://gnu.org/licenses/gpl.html>."
+	echo -e "\tThis is free software: you are free to change and redistribute it.  There is NO WARRANTY, to the extent permitted by law."
+	echo ""
+}
+
+function testconnect()
+{
+	lst="$1"
+	mkdir -p /tmp/basefs-editor/
+	rm -f /tmp/basefs-editor/basefs.list
+	wget -c http://www.sphinux.org/basefs/basefs.list -O /tmp/basefs-editor/basefs.list >> /dev/null 2>&1
+	
+	baseno=`cat /tmp/basefs-editor/basefs.list | awk -F ';' '{print $5}' | grep -c '^1' | tr -d '%'`
+	if [[ "$baseno" -lt "1" ]]
+	then
+		exitApp "Fatal: Corrupt basis list or no internet connection." "2"
+	else
+#		echo "Found $baseno Base filesystems ."
+#		echo ""
+		if [[ "$lst" == "l" ]]
+		then
+			[[ -f /tmp/basefs-editor/basefs.touser ]] && rm -f /tmp/basefs-editor/basefs.touser
+			echo -e "id \t \t \t name" > /tmp/basefs-editor/basefs.touser
+			cat /tmp/basefs-editor/basefs.list | tr -s ";" " "  | awk '{print $1 "       " $2 " " $3 " " $4 " " $5 " "$6 " " $7}' >> /tmp/basefs-editor/basefs.touser
+			cat /tmp/basefs-editor/basefs.touser
+			exit 0
+		fi
+	fi
+	logging "[*] connected and get baselist"
+}
+
+
+function logging()
+{
+	[[ -z $WORKDIR ]] && return
+	log=$1
+	if [[ "$VERBOSE" == "on" ]]
+	then
+		echo ""
+		echo -e "$log"
+		echo -e "$log" >> $WORKDIR/redist.log
+	else
+		echo -e "$log" >> $WORKDIR/redist.log
+	fi
+}
+
+function getbase()
+{
+	if [[ -z $1 ]]
+	then
+		base=`cat "$parmfile" | grep "basefsid:" | cut -d ":" -f2 | tr -d ";"`
+	else
+		base="$1"
+	fi
+	
+	basiscont=`cat /tmp/basefs-editor/basefs.list`
+	if [[ ! -z "$base" ]]
+	then
+		baseurl=`echo $basiscont | grep "^$base;" | awk -F ';' '{print $3}' | tr -d '\n'`
+		basefname=`basename $baseurl`
+		basesize=`curl -sI $baseurl | grep Content-Length | cut -d ' ' -f 2 | sed "s/[^0-9]//g"`
+		cbasesize=`ls -la $WORKDIR/$basefname  | awk '{print $5}'`
+		if [[ "$basesize" != "$cbasesize" ]]
+		then
+			cd $APPDIR; ./fetch "$baseurl" "$WORKDIR" "$APPDIR" > /dev/null 2>&1
+		fi
+	else
+		exitApp "FATAL: please choose basefs version \ntype -h/--help to get help" "3"
+	fi
+	logging "[*] baseFS $base Downloaded"
+}
+
+function setworkdir()
+{
+	WORKDIR="$1"
+	[[ -z $WORKDIR ]] && exitApp "FATAL: $WORKDIR please enter work dir as first argument\n type -h,--help to get help" "1"
+	[[ ! -d $WORKDIR ]] && exitApp "FATAL: $WORKDIR directory not exist" "1"
+	logging "[*] Work Directory set to $WORKDIR"
+}
+
+function exitApp()
+{
+	err="$1"
+	ec="$2"
+	logging "[*] ExitApp with error $err exit code $ec"
+	if [[ "$VERBOSE" == "on" ]]
+	then
+		exit "$ec"
+	else
+		echo -e "$err"
+		exit "$ec"
+	fi
+}
+
+function setIsoname()
+{
+	newisoname=`cat "$parmfile" | grep "isoname:" | cut -d ":" -f2 | tr -d ";"`
+	namchk=`echo "$newisoname" | tr -d '[:alnum:]-_.'`
+
+	if [ ! -z $namchk ]
+	then
+		exitApp "FATAL: iso name not correct." "1"
+	else
+		isoname="$newisoname"
+	fi
+	logging "[*] Iso name set to $isoname"
+}
+
+
+function setDistname()
+{
+	distname=`cat isolinux/menu.cfg | grep -m1 "menu title" | awk '{print $3}' | tr -d ' ' | tr -d '\n'`
+
+	newdistname=`cat "$parmfile" | grep "grubTitle:" | cut -d ":" -f2 | tr -d ";"`
+	distchk=`echo "$newdistname" | tr -d '[:alnum:]'`
+	if [ ! -z $distchk ]
+	then
+		exitApp "FATAL: GrubMenuTitle not correct or not exist." "1"
+	else
+		sed -i "s/menu title $distname/menu title $newdistname/g" isolinux/menu.cfg
+	fi
+	logging "[*] DISTRIBUTION name set to $newdistname"
+}
+
+function setEtc()
+{
+	etcdir="`pwd`/install/sysconf"
+
+	newetcdir=`cat "$parmfile" | grep "etcDir:" | cut -d ":" -f2 | tr -d ";"`
+	if [[ -z $newetcdir ]] || [[ ! -d $newetcdir ]]
+	then
+		exitApp "FATAL: system configuration directory Doesn't exist." "1"
+	elif [[ "$newetcdir" == "$etcdir" ]]
+	then
+		return
+	else
+		execludes="X11/xorg.conf resolv.conf hosts hostname mtab fstab udev/rules.d/70-persistent* group group- passwd passwd- shadow shadow- gshadow gshadow- wicd/wired-settings.conf wicd/wireless-settings.conf NetworkManager/system-connections/* printcap cups/printers.conf gdm/gdm.conf-custom gdm/custom.conf cups/ssl/server.crt cups/ssl/server.key ssh/ssh_host_rsa_key ssh/ssh_host_dsa_key.pub ssh/ssh_host_dsa_key ssh/ssh_host_rsa_key.pub"
+		rm -f $etcdir/etc.squashfs
+		mksquashfs $newetcdir/ $etcdir/etc.squashfs -no-duplicates -no-recovery -always-use-fragments -b 1M -e $execludes >> /dev/null 2>&1
+	fi
+	logging "[*] /etc intities updated."
+
+}
+
+
+function setSkel()
+{
+	skeldir="`pwd`/install/userconf"
+
+	newskeldir=`cat "$parmfile" | grep "userConf:" | cut -d ":" -f2 | tr -d ";"`
+	if [[ -z $newskeldir ]] || [[ ! -d $newskeldir ]]
+	then
+		exitApp "FATAL: User configuration directory Doesn't exist." "1"
+	elif [[ "$newskeldir" == "$skeldir" ]]
+	then
+		return
+	else
+		execludes=".adobe .cache .dbus .fontconfig .gnupg .gstreamer-0.10 .icedtea .kde/cache* .kde/socket* .kde/tmp* .macromedia .pulse .Skype .speech-dispatcher .ssh .subversion .thumbnails .wine .alsaequal.bin .bash_history .esd_auth .gksu.lock .htcfg2 .lesshst .nano_history .pulse-cookie .Xauthority .xsession-errors*"
+		rm -f $skeldir/skel.squashfs
+		mksquashfs $newskeldir/ $skeldir/skel.squashfs -no-duplicates -no-recovery -always-use-fragments -b 1M -e $execludes >> /dev/null 2>&1
+	fi
+	logging "[*] Home configuration updated"
+}
+
+
+function setExtra()
+{
+	extradir="`pwd`/install/rootfs"
+	newextradir=`cat "$parmfile" | grep "rootExtra:" | cut -d ":" -f2 | tr -d ";"`
+	if [[ -z $newextradir ]] || [[ ! -d $newextradir ]]
+	then
+		exitApp "FATAL: Extra root files directory Doesn't exist." "1"
+	elif [[ "$newextradir" == "$extradir" ]]
+	then
+		return
+	else
+		rm -f $extradir/root.squashfs
+		mksquashfs $newextradir/ $extradir/root.squashfs -no-duplicates -no-recovery -always-use-fragments -b 1M > /dev/null 2>&1
+	fi
+	logging "[*] '/' Extra files updated"
+}
+
+
+function baseEnv()
+{
+	if [[ ! -d live/basefs ]]
+	then
+		cd live
+		echo "$d7"
+		unsquashfs -f -x -d basefs filesystem.squashfs > /dev/null 2>&1
+		mount -o bind /proc basefs/proc
+		mount -o bind /sys basefs/sys
+		mount -o bind /dev basefs/dev
+		mount -o bind /dev/pts basefs/dev/pts
+		cp /etc/resolv.conf basefs/etc/resolv.conf
+		cd ..
+	fi
+	logging "[*] base Environment set successfully"
+}
+
+function setrdme()
+{
+	auther=`cat "$parmfile" | grep "auther:" | cut -d ":" -f2 | tr -d ";" `
+	description=`cat "$parmfile" | grep "disc:" | cut -d ":" -f2 | tr -d ";"`
+	version=`cat "$parmfile" | grep "vers:" | cut -d ":" -f2 | tr -d ";"`
+	inpacks=`cat $WORKDIR/extracted/newiso/install/backend.parm | grep -m1 "^installpacks:" | sed 's/installpacks://g' | tr -d ';'`
+	echo -ne "DISTRIBUTION: \n" > $WORKDIR/extracted/$dirnm/README
+	echo -ne "\t $description \n\n" > $WORKDIR/extracted/$dirnm/README
+	echo -ne "\t$newdistname\n\n" >> $WORKDIR/extracted/$dirnm/README
+	echo -ne "VERSION: $version\n" >> $WORKDIR/extracted/$dirnm/README
+	echo -ne "\t\n\n" >> $WORKDIR/extracted/$dirnm/README
+	echo -ne "ABOUT:\n" >> $WORKDIR/extracted/$dirnm/README
+	echo -ne "\t\n\n" >> $WORKDIR/extracted/$dirnm/README
+	echo -ne "AUTHORS: $auther\n" >> $WORKDIR/extracted/$dirnm/README
+	echo -ne "\t\n\n" >> $WORKDIR/extracted/$dirnm/README
+	echo -ne "LICENSE:\n" >> $WORKDIR/extracted/$dirnm/README
+	echo -ne "\tLicense GPLv3+: GNU GPL version 3+ <http://gnu.org/licenses/gpl.html>\n\n\tThis is free software, You are free to change and redistribute it.\n\tThere is NO WARRANTY, to the extent permitted by law.\n\n" >> $WORKDIR/extracted/$dirnm/README
+	echo -ne "BUGS:\n" >> $WORKDIR/extracted/$dirnm/README
+	echo -ne "\t\n\n" >> $WORKDIR/extracted/$dirnm/README
+	echo -ne "DATE:\n" >> $WORKDIR/extracted/$dirnm/README
+	echo -ne "\t`date`\n\n" >> $WORKDIR/extracted/$dirnm/README
+	echo -ne "CHANGELOG:\n" >> $WORKDIR/extracted/$dirnm/README
+	echo -ne "\t\n\n" >> $WORKDIR/extracted/$dirnm/README
+	echo -ne "INCLUDED SOFTWARE:\n" >> $WORKDIR/extracted/$dirnm/README
+	echo -ne "`IFS=$(echo -en \" \"); for i in $inpacks; do echo -e \"\t- $i\"; done`\n" >> $WORKDIR/extracted/$dirnm/README
+	logging "README File at $WORKDIR/extracted/$dirnm/README"
+}
+
+function mkIso()
+{	
+	umount $WORKDIR/extracted/newiso/live/basefs/dev/pts > /dev/null 2>&1
+	umount $WORKDIR/extracted/newiso/live/basefs/dev > /dev/null 2>&1
+	umount $WORKDIR/extracted/newiso/live/basefs/proc > /dev/null 2>&1
+	umount $WORKDIR/extracted/newiso/live/basefs/sys > /dev/null 2>&1
+
+	rm -rf $WORKDIR/extracted/newiso/live/basefs/
+
+	fssize=`du -s $WORKDIR/extracted/newiso/ | awk '{print $1}'`
+	if [[ "$fssize" -gt "3999999" ]]
+	then
+		exitApp "Filesystem is larger than 4GB, ISO 9660 Specifications doesn't allow this \nFor more information visit http://wiki.osdev.org/ISO_9660" "3"
+	else
+		chmod a+w $WORKDIR/extracted/newiso/isolinux/isolinux.bin
+		dirnm=`echo $isoname | sed 's/.iso//g'`
+		mkdir -p $WORKDIR/extracted/$dirnm
+		[[ -f "$WORKDIR/extracted/$dirnm/$isoname" ]] && rm -f $WORKDIR/extracted/$dirnm/$isoname
+		[[ -f "$WORKDIR/extracted/$dirnm/$isoname.md5" ]] && rm -f $WORKDIR/extracted/$dirnm/$isoname.md5
+		genisoimage -quiet -r -V $isoname -cache-inodes -J -l -b isolinux/isolinux.bin -c isolinux/boot.cat -no-emul-boot -boot-load-size 4 -boot-info-table -o $WORKDIR/extracted/$dirnm/$isoname "$WORKDIR/extracted/newiso"
+		$APPDIR/data/bin/isohybrid $WORKDIR/extracted/$dirnm/$isoname
+		md5sum $WORKDIR/extracted/$dirnm/$isoname > $WORKDIR/extracted/$dirnm/$isoname.md5 > /dev/null 2>&1
+		setrdme
+		cd $WORKDIR/extracted
+		fno=`find $dirnm -type f | wc -l`
+		7z -mx=9 a $dirnm.7z $dirnm 2>&1 | fgrep Compressing | nl | mawk -W interactive -v x="$fno" '{printf "%d\n", (NR*100/x)}' | echo "Compressing file .. please wait"
+		logging "Redistribution process completed successfully. A 7z archive containinig your files reside in: $WORKDIR/extracted/"
+		cd $WORKDIR
+	fi
+}
+
+
+function redist()
+{
+	if [[ ! -z $basefname ]]
+	then
+		cd $WORKDIR
+		cisoname=`echo $basefname | awk -F '.' '{print $1}'`
+		(7z l $basefname | grep $cisoname | awk '{print $5}' | grep .iso$ > /dev/null 2>&1) || exitApp "Selected BaseFS is corrupt or incomplete" "3"
+		stdname=`echo $basefname | sed -e 's/.7z//g'`
+		isoname="$stdname.iso"
+		logging "[*] Extracting BaseFS archive"
+		$APPDIR/extract "$basefname" "$APPDIR"
+		if [[ "$?" == "0" ]]
+		then
+			cd extracted
+			umount $isoname $stdname >> /dev/null 2>&1
+			mount $isoname $stdname -t iso9660 -o loop >> /dev/null 2>&1
+			rm -rf newiso >> /dev/null 2>&1
+			cp -rf $stdname newiso >> /dev/null 2>&1 
+			chmod -Rf u+w newiso/live/ >> /dev/null 2>&1
+			chmod -Rf u+w newiso/install/ >> /dev/null 2>&1
+			chmod -Rf u+w newiso/isolinux/ >> /dev/null 2>&1
+			chmod -Rf u+w newiso/isolinux/{grub.jpg,live.cfg,menu.cfg} >> /dev/null 2>&1
+			umount $isoname $stdname >> /dev/null 2>&1
+			rm -rf $stdname >> /dev/null 2>&1
+
+			cd ..
+		fi
+		if [[ -d extracted/newiso/ ]]
+		then
+			cd extracted/newiso/
+			return
+		fi
+	fi
+	logging "[*] Base File system file extracted"
+	
+}
+
+function chkParm()
+{
+	if [[ ! -f "$parmfile" ]]
+	then
+		cp $APPDIR/examples/redist.conf.example $WORKDIR/redist.conf.example
+		exitApp "configuration file doesn't exist \nyou can find an example of configuration file at $WORKDIR/redist.conf.example\nplease edit it." "1"
+	fi
+
+	base=`cat "$parmfile" | grep "basefsid:" | cut -d ":" -f2 | tr -d ";"`
+	newisoname=`cat "$parmfile" | grep "isoname:" | cut -d ":" -f2 | tr -d ";"`
+	newdistname=`cat "$parmfile" | grep "grubTitle:" | cut -d ":" -f2 | tr -d ";"`
+	newetcdir=`cat "$parmfile" | grep "etcDir:" | cut -d ":" -f2 | tr -d ";"`
+	newskeldir=`cat "$parmfile" | grep "userConf:" | cut -d ":" -f2 | tr -d ";"`
+	newextradir=`cat "$parmfile" | grep "rootExtra:" | cut -d ":" -f2 | tr -d ";"`
+
+	[[ -z $base ]] && exitApp "FATAL: you didn't fill 'base filesystem id' in configuration file" "1"
+	[[ -z $newisoname ]] && exitApp "FATAL: you didn't fill 'iso name'  in configuration file" "1"
+	[[ -z $newdistname ]] && exitApp "FATAL: you didn't fill 'distribution name'  in configuration file" "1"
+	[[ -z $newetcdir ]] && exitApp "FATAL: you didn't fill  'wide configuration dir'  in configuration file" "1"
+	[[ -z $newskeldir ]] && exitApp "FATAL: you didn't fill 'user configuration dir'  in configuration file" "1"
+	[[ -z $newextradir ]] && exitApp "FATAL: you didn't fill 'root extra dir'  in configuration file" "1"
+}
+
+function extract()
+{
+	testroot="`whoami`"
+	if [ "$testroot" != "root" ]
+	then
+		exitApp "Fatal: Must be root or run with sudo." "2"
+	fi
+
+	basv="$1"
+	WORKDIR="$2"
+	APPDIR=`dirname $(realpath $0)`
+	[[ -z $basv ]] && exitApp "FATAL:  please enter base version as second argument\n\ttype -l to list avliable versions" "1"
+	[[ ! -d $WORKDIR ]] && exitApp "FATAL: please enter work dir as third argument" "2"
+	testconnect
+	getbase "$basv"
+	redist
+	logging "base filesystem Extracted at $WORKDIR/extracted"
+}
+
+function main()
+{
+        
+	testroot="`whoami`"
+	if [ "$testroot" != "root" ]
+	then
+		exitApp "Fatal: Must be root or run with sudo." "2"
+	fi
+	setworkdir "$1"
+	APPDIR=`dirname $(realpath $0)`
+
+	if [[ -z "$2" ]]
+	then
+		parmfile="$WORKDIR/redist.conf"
+	else
+		parmfile="$2"
+	fi 
+	
+	testconnect
+	chkParm
+	getbase
+	redist
+	setIsoname
+	setDistname
+	setEtc
+	setExtra
+	mkIso
+}
+
+
+case $1 in
+"-h" | "--help")
+	printabout
+	exit 0
+	;;
+"--getbaselist" | "-l")
+	testconnect "l"
+	;;
+"-v" | "--verbose")
+	VERBOSE="on"
+	main "$2" "$3"
+	;;
+"-e" | "--extract")
+	extract "$2" "$3"
+	;;
+	*)
+	main "$@"
+	;;
+esac

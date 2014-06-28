@@ -1,0 +1,14 @@
+#! /bin/bash
+dirname=`dirname $0`
+cd $dirname
+
+for i in `cat data/deps | awk -F ':' '{print $1}'`
+do
+	if [[ -z `which $i` ]]
+	then
+		echo "FATAL: Cannot find command ( $i ), you can solve this by installing package (`cat data/deps | grep \"^$i: \" | awk -F ':' '{print $2}'` )" >&2
+		exit 1
+	fi
+done
+
+./basefs-editor "$@"

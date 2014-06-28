@@ -1,0 +1,21 @@
+#! /bin/bash
+
+if [[ -z "$2" ]]
+then
+	exit 1
+fi
+
+basefname="$1"
+APPDIR="$2"
+
+cisonname=`echo $basefname | awk -F '.' '{print $1}'`
+isosize=`7z l $basefname | grep $cisonname | grep iso$ | awk '{print $4}'`
+curisosize=`ls -la extracted/ | grep -e "$cisonname[[:graph:]]*.iso$" | awk '{print $5}'`
+if [[ "$curisosize" != "$isosize" ]]
+then
+	rm -rf extracted
+	7z e $basefname -oextracted >> /dev/null 2>&1
+	
+else
+	exit 2
+fi 

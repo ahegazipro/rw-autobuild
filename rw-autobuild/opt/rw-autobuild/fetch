@@ -1,0 +1,25 @@
+#!/bin/bash
+
+function dlbasefs()
+{
+	url="$1"
+	WORKDIR="$2"
+	APPDIR="$3"
+	filesno="$4"
+	curr="$5"
+
+	if [[ -z "$5" ]]
+	then
+		filesno=1
+		curr=1
+	fi
+
+	[[ -z "$3" ]] && APPDIR=`pwd`
+
+	cd $WORKDIR
+	rsize=`curl -sI $url | grep Content-Length | cut -d ' ' -f 2 | sed "s/[^0-9]//g"`
+	wget -t 5 -c $url
+
+}
+
+dlbasefs "$1" "$2" "$3" "$4" "$5"
